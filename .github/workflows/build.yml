@@ -16,24 +16,24 @@ jobs:
         with:
           python-version: '3.x'
           
-      - name: Install PlatformIO and esptool
-        run: pip install platformio esptool
+      - name: Install PlatformIO
+        run: pip install platformio
         
       - name: Build firmware and filesystem
         run: |
           pio run
           pio run --target buildfs
           
-      - name: Merge binaries
+      - name: Prepare Individual Files
         run: |
-          python -m esptool --chip esp32s3 merge_bin -o firmware.bin \
-            0x0 .pio/build/esp32s3_n16r8/bootloader.bin \
-            0x8000 .pio/build/esp32s3_n16r8/partitions.bin \
-            0x10000 .pio/build/esp32s3_n16r8/firmware.bin \
-            0x810000 .pio/build/esp32s3_n16r8/littlefs.bin
+          mkdir release_files
+          cp .pio/build/esp32s3_n16r8/bootloader.bin release_files/
+          cp .pio/build/esp32s3_n16r8/partitions.bin release_files/
+          cp .pio/build/esp32s3_n16r8/firmware.bin release_files/
+          cp .pio/build/esp32s3_n16r8/littlefs.bin release_files/
             
-      - name: Upload merged firmware
+      - name: Upload Separate Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
-          path: firmware.bin
+          name: separate-binaries
+          path: release_files/
