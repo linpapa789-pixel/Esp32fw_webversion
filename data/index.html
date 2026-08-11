@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>JCID Diag Pro S3</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="header">
+  <h2><span class="brand-accent">JCID</span> DIAG PRO S3</h2>
+  <span id="ws-status" class="status offline">OFFLINE</span>
+</div>
+
+<div class="container">
+  <!-- Dashboard -->
+  <div id="view-dash" class="view">
+    <div class="grid-2">
+      <div class="card metric-card">
+        <h3>Voltage (VBAT)</h3>
+        <div id="v-val" class="val">0.00 V</div>
+        <div class="val-sub">Avg: <span id="v-avg">0.00</span> V</div>
+      </div>
+      <div class="card metric-card">
+        <h3>Clock (OSC)</h3>
+        <div id="clk-val" class="val">0 Hz</div>
+        <div class="val-sub">PCNT Hardware Edge</div>
+      </div>
+    </div>
+    
+    <div class="grid-2">
+      <div class="card flex-center">
+        <h3>USB D+</h3>
+        <span id="usb-dp" class="badge low">L</span>
+      </div>
+      <div class="card flex-center">
+        <h3>USB D-</h3>
+        <span id="usb-dn" class="badge low">L</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Logic Analyzer</div>
+      <div class="flex-row"><span>BOOT_MON (GPIO 4)</span><span id="log-boot" class="badge low">L</span></div>
+      <div class="flex-row"><span>RESET_MON (GPIO 5)</span><span id="log-rst" class="badge low">L</span></div>
+      <div class="flex-row"><span>EN_MON (GPIO 6)</span><span id="log-en" class="badge low">L</span></div>
+      <div class="terminal" id="seq-log" style="height:150px; margin-top:15px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">System Telemetry</div>
+      <div class="flex-row"><span>Free Heap</span><span id="sys-heap">0 KB</span></div>
+      <div class="flex-row"><span>Free PSRAM</span><span id="sys-psram">0 KB</span></div>
+      <div class="flex-row"><span>MCU Temp</span><span id="sys-temp">0 °C</span></div>
+    </div>
+  </div>
+
+  <!-- UART Terminal -->
+  <div id="view-uart" class="view hidden">
+    <div class="card">
+      <div class="warning-box">🛡️ Hardware RX Only - Safe Board Read Mode</div>
+      <div class="control-grid">
+        <select id="baud">
+          <option value="9600">9600</option>
+          <option value="115200" selected>115200</option>
+          <option value="921600">921600</option>
+        </select>
+        <button class="btn-primary" onclick="setBaud()">Set Baud</button>
+      </div>
+      <div class="control-grid-3">
+        <button class="btn-dark" onclick="switchUartMode()" id="uart-mode-btn">HEX Mode</button>
+        <button class="btn-dark" onclick="togglePause()" id="pause-btn">Pause</button>
+        <button class="btn-dark" onclick="downloadLog()">Save</button>
+      </div>
+      <button onclick="clearTerm()" class="btn-danger" style="margin-top:10px;">Clear Console</button>
+      <div id="term" class="terminal" style="margin-top:15px; height:350px;"></div>
+    </div>
+  </div>
+
+  <!-- I2C Scanner -->
+  <div id="view-i2c" class="view hidden">
+    <div class="card">
+      <div class="warning-box">🛡️ ESP Internal pull-ups disabled for motherboard safety.</div>
+      <button class="btn-primary" onclick="scanI2C()">Scan I2C Bus</button>
+      <div id="i2c-res" class="terminal" style="height:300px; margin-top:15px;">Awaiting scan...</div>
+    </div>
+  </div>
+
+  <!-- PWM Generator -->
+  <div id="view-pwm" class="view hidden">
+    <div class="card">
+      <div class="warning-box danger-box">⚠️ 3.3V OUTPUT! Verify target logic level before injection.</div>
+      <label>Frequency (Hz, 1-40000):</label>
+      <input type="number" id="pwm-f" value="1000" min="1" max="40000">
+      <label>Duty Cycle (0-255):</label>
+      <input type="number" id="pwm-d" value="128" min="0" max="255">
+      <button id="btn-pwm" class="btn-danger" onclick="togglePWM()">Inject PWM Signal</button>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="view-settings" class="view hidden">
+    <div class="card">
+      <div class="card-header">Network Config</div>
+      <label>SSID:</label>
+      <input type="text" id="set-ssid">
+      <label>Password:</label>
+      <input type="password" id="set-pass">
+      <button class="btn-primary" onclick="saveSettings()">Save & Reboot</button>
+    </div>
+    <div class="card">
+      <button class="btn-dark" onclick="restartDevice()">Reboot MCU</button>
+      <button class="btn-danger" onclick="factoryReset()" style="margin-top:10px;">Factory Data Reset</button>
+    </div>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-item active" onclick="nav('dash', this)">📊 Dash</div>
+  <div class="nav-item" onclick="nav('uart', this)">📟 UART</div>
+  <div class="nav-item" onclick="nav('i2c', this)">🔍 I2C</div>
+  <div class="nav-item" onclick="nav('pwm', this)">⚡ PWM</div>
+  <div class="nav-item" onclick="nav('settings', this)">⚙️ Config</div>
+</nav>
+
+<script src="/app.js"></script>
+</body>
+</html>
