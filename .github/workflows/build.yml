@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: '3.x'
           
-      - name: Install PlatformIO
-        run: pip install platformio
+      - name: Install PlatformIO and esptool
+        run: pip install platformio esptool
         
       - name: Build firmware and filesystem
         run: |
