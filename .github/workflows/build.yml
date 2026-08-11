@@ -1,0 +1,39 @@
+name: Build ESP32 Firmware
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          
+      - name: Install PlatformIO
+        run: pip install platformio
+        
+      - name: Build firmware and filesystem
+        run: |
+          pio run
+          pio run --target buildfs
+          
+      - name: Merge binaries
+        run: |
+          python -m esptool --chip esp32s3 merge_bin -o firmware.bin \
+            0x0 .pio/build/esp32s3_n16r8/bootloader.bin \
+            0x8000 .pio/build/esp32s3_n16r8/partitions.bin \
+            0x10000 .pio/build/esp32s3_n16r8/firmware.bin \
+            0x810000 .pio/build/esp32s3_n16r8/littlefs.bin
+            
+      - name: Upload merged firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: firmware.bin
