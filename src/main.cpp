@@ -1,6 +1,6 @@
 /*
  * Professional Mobile Phone Hardware Diagnostic Tool
- * ESP32-S3 N16R8, Arduino Core 3.x, LittleFS, AsyncWebServer
+ * ESP32-S3 N16R8, Arduino Core 2.x, LittleFS, AsyncWebServer
  */
 #include <Arduino.h>
 #include <WiFi.h>
@@ -10,7 +10,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
-#include <driver/pulse_cnt.h>
+#include <driver/pcnt.h>  // FIX: Using ESP-IDF v4 PCNT for Core 2.x compatibility
 #include <driver/gpio.h>
 #include <Wire.h>
 
@@ -33,7 +33,6 @@
 #define DNS_PORT         53
 #define PWM_FREQ_MIN     1
 #define PWM_FREQ_MAX     40000
-const int PCNT_LIMIT = 30000;
 
 // ------------------------- GLOBALS & INSTANCES -------------------------
 AsyncWebServer server(80);
@@ -48,9 +47,9 @@ char password[65] = AP_PASS_DEFAULT;
 unsigned long last100ms = 0;
 unsigned long last1000ms = 0;
 
-pcnt_unit_handle_t pcnt_unit = NULL;
-pcnt_channel_handle_t pcnt_chan = NULL;
 volatile uint32_t pcnt_overflow_count = 0;
+const int PCNT_LIMIT = 30000;
+const int PWM_CHANNEL = 0; // For Core 2.x LEDC
 
 float adcSamples[10] = {0};
 int adcSampleIdx = 0;
@@ -64,9 +63,8 @@ struct SeqEvent {
 QueueHandle_t eventQueue;
 
 // ------------------------- ISRs -------------------------
-bool IRAM_ATTR pcnt_on_reach(pcnt_unit_handle_t unit, const pcnt_watch_event_data_t *edata, void *user_ctx) {
+void IRAM_ATTR pcnt_intr_handler(void *arg) {
     pcnt_overflow_count++;
-    return false;
 }
 
 void IRAM_ATTR handleSeqInterrupt(uint8_t pin) {
@@ -111,7 +109,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
         AwsFrameInfo *info = (AwsFrameInfo*)arg;
         if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
             JsonDocument doc;
-            DeserializationError err = deserializeJson(doc, (const char*)data, len); // Safe cast, no null-terminator hack
+            DeserializationError err = deserializeJson(doc, (const char*)data, len); 
             if (err) return;
             
             const char* cmd = doc["cmd"];
@@ -155,7 +153,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
                 }
                 if (count == 0) snprintf(buf + offset, sizeof(buf) - offset, "No devices found. Check power & pull-ups.");
                 
-                pinMode(PIN_I2C_SDA, INPUT); // SAFETY: Restore High-Z
+                pinMode(PIN_I2C_SDA, INPUT); 
                 pinMode(PIN_I2C_SCL, INPUT);
                 
                 JsonDocument outDoc;
@@ -171,12 +169,14 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
                     long f = doc["f"];
                     int d = doc["d"];
                     if (f >= PWM_FREQ_MIN && f <= PWM_FREQ_MAX && d >= 0 && d <= 255) {
-                        ledcAttach(PIN_PWM_OUT, f, 8);
-                        ledcWrite(PIN_PWM_OUT, d);
+                        // FIX: Core 2.x LEDC API
+                        ledcSetup(PWM_CHANNEL, f, 8);
+                        ledcAttachPin(PIN_PWM_OUT, PWM_CHANNEL);
+                        ledcWrite(PWM_CHANNEL, d);
                         pwmEnabled = true;
                     }
                 } else {
-                    ledcDetach(PIN_PWM_OUT);
+                    ledcDetachPin(PIN_PWM_OUT);
                     pinMode(PIN_PWM_OUT, INPUT); // SAFETY: Instant High-Z
                     pwmEnabled = false;
                 }
@@ -223,19 +223,26 @@ void setupHardware() {
     analogSetAttenuation(ADC_11db);
     Serial1.begin(115200, SERIAL_8N1, PIN_UART_RX, -1); // TX explicitly disabled (-1)
 
-    // PCNT Setup
-    pcnt_unit_config_t unit_config = { .low_limit = -1, .high_limit = PCNT_LIMIT };
-    if (pcnt_new_unit(&unit_config, &pcnt_unit) == ESP_OK) {
-        pcnt_chan_config_t chan_config = { .edge_gpio_num = PIN_CLOCK_IN, .level_gpio_num = -1 };
-        pcnt_new_channel(pcnt_unit, &chan_config, &pcnt_chan);
-        pcnt_channel_set_edge_action(pcnt_chan, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_HOLD);
-        pcnt_event_callbacks_t cbs = { .on_reach = pcnt_on_reach };
-        pcnt_unit_register_event_callbacks(pcnt_unit, &cbs, NULL);
-        pcnt_unit_add_watch_point(pcnt_unit, PCNT_LIMIT);
-        pcnt_unit_enable(pcnt_unit);
-        pcnt_unit_clear_count(pcnt_unit);
-        pcnt_unit_start(pcnt_unit);
-    }
+    // FIX: PCNT Setup (ESP-IDF v4 / Core 2.x Compatible)
+    pcnt_config_t pcnt_config = {};
+    pcnt_config.pulse_gpio_num = PIN_CLOCK_IN;
+    pcnt_config.ctrl_gpio_num = -1; // Not used
+    pcnt_config.channel = PCNT_CHANNEL_0;
+    pcnt_config.unit = PCNT_UNIT_0;
+    pcnt_config.pos_mode = PCNT_COUNT_INC;
+    pcnt_config.neg_mode = PCNT_COUNT_DIS;
+    pcnt_config.lctrl_mode = PCNT_MODE_KEEP;
+    pcnt_config.hctrl_mode = PCNT_MODE_KEEP;
+    pcnt_config.counter_h_lim = PCNT_LIMIT;
+    pcnt_config.counter_l_lim = -1;
+
+    pcnt_unit_config(&pcnt_config);
+    pcnt_event_enable(PCNT_UNIT_0, PCNT_EVT_H_LIM);
+    pcnt_isr_service_install(0);
+    pcnt_isr_handler_add(PCNT_UNIT_0, pcnt_intr_handler, NULL);
+    pcnt_counter_pause(PCNT_UNIT_0);
+    pcnt_counter_clear(PCNT_UNIT_0);
+    pcnt_counter_resume(PCNT_UNIT_0);
 }
 
 void setup() {
@@ -316,7 +323,6 @@ void loop() {
     if (now - last100ms >= 100) {
         last100ms = now;
         
-        // Calibrated ADC smoothing
         float voltage = analogReadMilliVolts(PIN_ADC_VOLT) / 1000.0f;
         adcSamples[adcSampleIdx] = voltage;
         adcSampleIdx = (adcSampleIdx + 1) % 10;
@@ -338,21 +344,20 @@ void loop() {
     if (now - last1000ms >= 1000) {
         last1000ms = now;
         
-        if (pcnt_unit != NULL && ws.count() > 0) {
-            int count = 0;
-            pcnt_unit_get_count(pcnt_unit, &count);
-            pcnt_unit_stop(pcnt_unit);
-            pcnt_unit_clear_count(pcnt_unit);
+        if (ws.count() > 0) {
+            // FIX: Core 2.x Counter Read
+            int16_t count = 0;
+            pcnt_get_counter_value(PCNT_UNIT_0, &count);
+            pcnt_counter_pause(PCNT_UNIT_0);
+            pcnt_counter_clear(PCNT_UNIT_0);
             uint32_t overflows = pcnt_overflow_count;
             pcnt_overflow_count = 0;
-            pcnt_unit_start(pcnt_unit);
+            pcnt_counter_resume(PCNT_UNIT_0);
             
             uint32_t hz = (overflows * PCNT_LIMIT) + count;
             snprintf(jsonBuf, sizeof(jsonBuf), "{\"type\":\"clk\",\"val\":%u}", hz);
             broadcastTXT(jsonBuf);
-        }
-        
-        if(ws.count() > 0) {
+            
             snprintf(jsonBuf, sizeof(jsonBuf), "{\"type\":\"sys\",\"heap\":%u,\"psram\":%u,\"temp\":%.1f,\"clients\":%d}",
                      ESP.getFreeHeap(), ESP.getFreePsram(), temperatureRead(), WiFi.softAPgetStationNum());
             broadcastTXT(jsonBuf);
